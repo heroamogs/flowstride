@@ -39,23 +39,45 @@ If you want to contribute code to Flowstride, you will need to set up the projec
 
 **Prerequisites:**
 
-- Node.js (v18 or higher)
-- npm or yarn
+- Node.js (v22.12.0 or higher, matching `package.json`)
+- npm (bundled with Node.js)
+- Rust and `wasm-pack` (only required when building the React Dashboard or running `npm run build:candidate`)
 
 **Setup Instructions:**
 
 1. Fork the repository on GitHub.
 2. Clone your forked repository to your local machine:
+   ```sh
    git clone https://github.com/YOUR-USERNAME/flowstride.git
    cd flowstride
-3. Install dependencies for the core runner:
-   npm install
-4. Install dependencies for the React Dashboard:
-   cd src/ui
-   npm install
-   cd ../../
-5. Run the TypeScript compiler in watch mode:
-   npm run build:watch
+   ```
+3. Install locked dependencies for the core runner:
+   ```sh
+   npm ci
+   ```
+4. Build the core runner (`tsc`):
+   ```sh
+   npm run build
+   ```
+   _(For continuous recompilation during development, run `npx tsc --watch`.)_
+5. Verify your local build with the core unit tests:
+   ```sh
+   node --test tests/native/core.test.cjs
+   ```
+6. _(Optional)_ Set up and build the React Dashboard (`src/ui`):
+   - Build the WASM workspace engine dependency first:
+     ```sh
+     cd src/workspace_engine
+     wasm-pack build --target web --release --locked
+     cd ../../
+     ```
+   - Install dashboard dependencies:
+     ```sh
+     cd src/ui
+     npm ci
+     cd ../../
+     ```
+   - Run `npm run dev` or `npm run build` inside `src/ui`, or run `npm run build:candidate` from the repository root to build the WASM engine, dashboard, and core runner together and verify the candidate.
 
 ---
 
