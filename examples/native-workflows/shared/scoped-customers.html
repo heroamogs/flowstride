@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Customer records</title>
+<main>
+  <h1>Customer records</h1>
+  <table id="customers" aria-label="Customer table">
+    <thead><tr><th>Last name</th><th>First name</th><th>Email</th><th>Due</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <p id="saved" aria-live="polite">Saves: 0</p>
+  <h2>Pending users</h2>
+  <table id="pending"><thead><tr><th>Email</th><th>Actions</th></tr></thead><tbody></tbody></table>
+  <p id="queue" aria-live="polite"></p>
+  <p id="approved" aria-live="polite"></p>
+  <section id="schedules" aria-label="Available schedules"></section>
+</main>
+<script>
+  const mode = new URLSearchParams(location.search).get('case');
+  const customers = [
+    ['u-11', 'john@example.test', '$50.00', 'Pending'],
+    ['u-12', 'frank@example.test', '$51.00', 'Active'],
+    ['u-13', 'jdoe@hotmail.com', '$100.00', 'Pending'],
+    ['u-14', mode === 'bad-email' ? 'tim.example.com' : 'tim@example.test', '$50.00', 'Active']
+  ];
+  const queue = mode === 'empty' ? [] : customers.filter(customer => customer[3] === 'Pending');
+  const names = {
+    'u-11': ['Smith', 'John'],
+    'u-12': ['Bach', 'Frank'],
+    'u-13': ['Doe', 'Jason'],
+    'u-14': ['Conway', 'Tim']
+  };
+  const approved = [];
+  let saves = 0;
+  function addButton(cell, name, click) {
+    const button = document.createElement('button');
+    button.textContent = name;
+    button.onclick = click;
+    cell.append(button);
+    return button;
+  }
+  function renderCustomers() {
+    const body = document.querySelector('#customers tbody');
+    body.replaceChildren();
+    customers.forEach(customer => {
+      const row = body.insertRow();
+      for (const value of [...names[customer[0]], ...customer.slice(1)]) row.insertCell().textContent = value;
+      const actions = row.insertCell();
+      if (customer[3] === 'Pending') addButton(actions, 'Approve', () => {}).disabled = mode === 'disabled';
+      addButton(actions, 'Save', () => {
+        document.querySelector('#saved').textContent = 'Saves: ' + ++saves;
+        setTimeout(() => {
+          customer[3] = 'Saved';
+          customers.splice(customers.indexOf(customer), 1);
+          customers.unshift(customer);
+          renderCustomers();
+        }, 100);
+      });
+    });
+  }
+  function renderQueue() {
+    const body = document.querySelector('#pending tbody');
+    body.replaceChildren();
+    queue.forEach(customer => {
+      const row = body.insertRow();
+      row.dataset.userId = mode === 'duplicate' ? 'duplicate' : customer[0];
+      row.insertCell().textContent = customer[1];
+      addButton(row.insertCell(), 'Approve', () => {
+        approved.push(customer[0]);
+        document.querySelector('#approved').textContent = approved.join(', ');
+        queue.splice(queue.indexOf(customer), 1);
+        queue.reverse();
+        renderQueue();
+      });
+    });
+    document.querySelector('#queue').textContent = 'Queue ready';
+  }
+  renderCustomers();
+  setTimeout(renderQueue, 100);
+  if (mode !== 'no-cards') setTimeout(() => {
+    document.querySelector('#schedules').innerHTML = '<article><h2>Lagos to Abuja</h2><a href="/booking/FS101">Book trip</a></article>';
+  }, 150);
+</script>
+</html>

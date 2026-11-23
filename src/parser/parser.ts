@@ -291,6 +291,9 @@ export class Parser {
         if (token.type === TokenType.HELPER_CALL && state === 'START') {
           throw new Error(`Line ${token.line}: Call helpers inside a scenario block.`);
         }
+        if (token.scoped && state === 'START') {
+          throw new Error('Line ' + token.line + ': Place scoped browser commands inside a scenario block.');
+        }
         if (token.fixtureScope && currentBlockType !== 'given') {
           throw new Error('Line ' + token.line + ': Declare fixtures in the Given block of a scenario.');
         }
@@ -400,6 +403,10 @@ export class Parser {
 
   private parseCommand(): StepNode {
     const commandToken = this.advance();
+    if (commandToken.scoped) {
+      return {id:'scenario_' + this.scenarioCounter + '_S' + this.stepCounter++, blockDescription:this.currentBlockDescription,
+        action:'scoped', payload:commandToken.scoped, line:commandToken.line};
+    }
 
     if (commandToken.type === TokenType.HELPER_CALL) {
       const input = commandToken.helperArguments!.trim();

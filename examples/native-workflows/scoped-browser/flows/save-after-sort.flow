@@ -1,0 +1,20 @@
+Feature: Find the same record after a redraw
+Scenario: Jason's saved status follows him to the top of the table
+  Given "Customer records are open"
+    flow.open "/scoped-customers";
+  When "I select Jason by his email"
+    flow.find td "jdoe@hotmail.com" inside table "#customers";
+    flow.ascend tr;
+  Then "Jason is saved once and moves to the first data row"
+    flow.within {
+      flow.click button "Save";
+      flow.expect text cell "Status" equals "Saved";
+    };
+    flow.find tbody inside table "#customers";
+    flow.within {
+      flow.find tr[0];
+      flow.within {
+        flow.expect text cell "Email" equals "jdoe@hotmail.com";
+      };
+    };
+    flow.expect visible "Saves: 1";

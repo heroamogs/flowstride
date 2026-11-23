@@ -1,3 +1,4 @@
+import { ScopedBrowser } from '../native/scoped_browser';
 import { createHash } from 'node:crypto';
 import { handoffSecrets, snapshotHandoff, type HandoffCommand, type HandoffValue } from '../native/handoff';
 import type { HandoffAssignment, HandoffWorkerSource } from './handoff_coordinator';
@@ -73,6 +74,7 @@ export class FlowWorker extends EventEmitter {
   public static readonly nativeHelperProtocol = 1;
   public static readonly nativeFixtureProtocol = 1;
   public static readonly nativeHandoffProtocol = 1;
+  public static readonly nativeScopedBrowserProtocol = 1;
   public static readonly nativePasswordToggleProtocol = 1;
   public static readonly nativeApiProtocol = 1;
   public static readonly nativeApplicationEvidenceProtocol = 1;
@@ -283,7 +285,7 @@ export class FlowWorker extends EventEmitter {
       if(['RUN_START','SCENARIO_ATTEMPT','SCENARIO_RESULT'].includes(type))payload={...payload,dataCase:info};
       if(type==='STEP_ADD'&&typeof payload.description==='string'&&!payload.description.endsWith(`· Case ${info.index}/${info.total}`))payload={...payload,description:payload.description+` · Case ${info.index}/${info.total}`};
     }
-    if (["STEP_ADD","STEP_UPDATE","LOG_EVENT"].includes(type)) payload = { ...payload, ...(this.currentDataCase ? {dataCase:{index:this.currentDataCase.index+1,total:this.currentDataCase.total,file:this.currentDataCase.file},scenario:this.currentScenarioName} : {}), attempt: this.attempt, profile: this.web.activeProfile || "default" };
+    if (["STEP_ADD","STEP_UPDATE","LOG_EVENT"].includes(type)) payload = { ...payload, ...(this.currentScenarioName ? {scenario:this.currentScenarioName} : {}), ...(this.currentDataCase ? {dataCase:{index:this.currentDataCase.index+1,total:this.currentDataCase.total,file:this.currentDataCase.file}} : {}), attempt: this.attempt, profile: this.web.activeProfile || "default" };
     const safe = redactWorkerPayload(type, payload, this.secretValues(), this.config.ci === false && !this.config.protectedHandoff);
     if (['EXECUTION_PAUSED','EXECUTION_RESUMED'].includes(type) && isPauseId(payload?.id)) {
       // A generated routing identifier is opaque, not application data or a credential.
@@ -1114,8 +1116,13 @@ export class FlowWorker extends EventEmitter {
     let lastFailedStepId: string | undefined;
     this.paceMilliseconds = 0;
     this.currentScenarioName = scenario.name;
-    for (const originalStep of scenario.steps) {
-      const step = structuredClone(originalStep);
+    const scopes = new ScopedBrowser(() => this.web.getScope(), () => this.web.getPage(), this.config.timeout);
+    const visitedStepIds = new Set<string>();
+    for (let i = 0; i < scenario.steps.length; i++) {
+      const step = structuredClone(scenario.steps[i]);
+      if (!hasHardFailure) step.id += scopes.iterationId;
+      if (hasHardFailure && visitedStepIds.has(step.id)) continue;
+      visitedStepIds.add(step.id);
       this.currentAssertion = undefined;
       this.commandSecretValues = [];
       if (this.isAborted) break;
@@ -1245,6 +1252,9 @@ export class FlowWorker extends EventEmitter {
           } finally {
             this.pendingFixtureSetup = undefined;
           }
+        } else if (step.action === 'scoped') {
+          const next = await scopes.execute(step.payload, i, result => { this.currentAssertion = result; });
+          if (next !== undefined) i = next - 1;
         } else if (method !== 'skipif') {
           await this.executeStep(
             step.action,

@@ -1,3 +1,4 @@
+import language from '../parser/language-manifest.json';
 import { passwordDisplayState } from '../adapters/web/password_toggle';
 import type { WebAdapter } from '../adapters/web/playwright';
 import { readableTargetSchema, readableTargetDescription } from './targeting';
@@ -22,11 +23,11 @@ async function installAccessibilityNames(page: Page) {
   for (const frame of page.frames()) await frame.evaluate(source);
 }
 const schema = z.object({ target: readableTargetSchema.optional(), message: z.string().min(1).max(1500).optional(), selector: z.string().min(1).optional(), role: z.string().min(1).optional(), name: z.string().optional(), frame: z.string().optional(),
-  condition: z.enum(['masked','revealed','visible','hidden','attached','enabled','disabled','editable','checked','empty','focused','text','containsText','value','values','count','attribute','css','id','property','accessibleName','accessibleDescription','inViewport','url','title','localStorage','sessionStorage']),
+  condition: z.enum(language.conditions),
   value: z.unknown().optional(), attribute: z.string().optional(), property: z.string().optional(), key: z.string().optional(),
   matches: z.string().optional(), flags: z.string().regex(/^[imsu]*$/).optional(), not: z.boolean().default(false), timeout: positive.optional(),
 }).strict();
-export async function assertBrowser(page: Page, input: unknown, defaultTimeout: number, reporter?: AssertionReporter, web?: Pick<WebAdapter, 'resolveAssertionTarget'> & Partial<Pick<WebAdapter,'getScope'>>): Promise<void> {
+export async function assertBrowser(page: Page, input: unknown, defaultTimeout: number, reporter?: AssertionReporter, web?: Pick<WebAdapter, 'resolveAssertionTarget'> & Partial<Pick<WebAdapter,'getScope'>>, resolvedLocator?: import('playwright').Locator): Promise<void> {
   const data = schema.parse(input), timeout = data.timeout ?? defaultTimeout, started = Date.now();
   const expected: any = data.matches !== undefined ? new RegExp(data.matches, data.flags) : data.value;
   const equals = (actual: unknown) => expected instanceof RegExp ? typeof actual === 'string' && expected.test(actual) : isDeepStrictEqual(actual, expected);
@@ -38,7 +39,7 @@ export async function assertBrowser(page: Page, input: unknown, defaultTimeout: 
   if (data.target !== undefined && data.name !== undefined) throw new Error('name belongs to role targeting; use text inside target instead.');
   if (!elementCondition && data.target !== undefined) throw new Error('Page/storage assertions do not take an element target.');
   if (data.target !== undefined && !web) throw new Error('Textual assertions require a Flowstride browser adapter.');
-  let locator = data.role ? scope.getByRole(data.role as any, { name: data.name, exact: true }) : scope.locator(data.selector || 'body');
+  let locator = resolvedLocator ?? (data.role ? scope.getByRole(data.role as any, { name: data.name, exact: true }) : scope.locator(data.selector || 'body'));
   const passwordCondition = data.condition === 'masked' || data.condition === 'revealed';
   const booleanConditions = ['masked','revealed','visible','hidden','attached','enabled','disabled','editable','checked','empty','focused','inViewport'];
   if (!booleanConditions.includes(data.condition) && data.condition !== 'attribute' && expected === undefined) throw new Error('This assertion requires value or matches.');

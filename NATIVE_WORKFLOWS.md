@@ -177,3 +177,7 @@ The maintained full reference is at [docs.flowstride.io](https://docs.flowstride
 ## Share helpers with existing Playwright suites
 
 A `.flow` file and a Playwright spec can import the same JavaScript or TypeScript helper. See the [runnable discount example](examples/native-workflows/playwright-reporting/README.md) and the [Playwright reporting guide](NATIVE_CI.md#report-existing-playwright-test-suites) for how to view both results together.
+
+## Scoped browser workflows
+
+The [customer tables and schedule cards lesson](examples/native-workflows/scoped-browser/README.md) runs locally. It covers parent traversal, named columns, filtered rows, stable keys for a changing list, and per-row assertion diagnostics.

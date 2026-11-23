@@ -37,6 +37,7 @@ export class FlowOrchestrator {
   public static readonly nativeHelperProtocol = 1;
   public static readonly nativeFixtureProtocol = 1;
   public static readonly nativeHandoffProtocol = 1;
+  public static readonly nativeScopedBrowserProtocol = 1;
   public static readonly nativePasswordToggleProtocol = 1;
   public static readonly nativeApiProtocol = 1;
   public static readonly nativeApplicationEvidenceProtocol = 1;

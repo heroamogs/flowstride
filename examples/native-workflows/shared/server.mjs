@@ -1,4 +1,6 @@
 import http from 'node:http';
+import { readFileSync } from 'node:fs';
+const scopedCustomers = readFileSync(new URL('./scoped-customers.html', import.meta.url), 'utf8');
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
@@ -21,6 +23,7 @@ export async function startExampleApp({ port = 4107 } = {}) {
     const url = new URL(request.url, `http://${host}`);
     const json = (status, data) => { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(data)); };
     const html = source => { response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); response.end(source); };
+    if (request.method === 'GET' && url.pathname === '/scoped-customers') return html(scopedCustomers);
     let raw = '', size = 0;
     for await (const chunk of request) {
       size += chunk.length;

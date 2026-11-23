@@ -1,0 +1,15 @@
+Feature: Inspect a dynamic booking link
+Scenario: The first available schedule links to booking
+  Given "Customer schedules are open"
+    flow.open "/scoped-customers";
+  When "The first schedule card appears"
+    flow.find article[0] inside main "timeout: 3000";
+  Then "The card has a title and a booking link"
+    flow.within {
+      flow.expect visible h2;
+      flow.expect text h2 not.empty;
+      flow.find link "Book trip";
+      flow.expect visible current;
+      flow.expect attribute current "href" exists;
+      flow.expect attribute current "href" contains "/booking/";
+    };

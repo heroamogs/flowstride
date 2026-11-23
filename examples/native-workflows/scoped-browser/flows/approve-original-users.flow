@@ -1,0 +1,16 @@
+Feature: Approve a shrinking queue
+Scenario: Approve each original user exactly once
+  Given "The pending queue has finished loading"
+    flow.open "/scoped-customers";
+    flow.expect visible "Queue ready";
+  When "I select the pending rows"
+    flow.find tbody inside table "#pending";
+  Then "Every original ID is approved once"
+    flow.within {
+      flow.each tr by attribute "data-user-id" "timeout: 3000" {
+        flow.click button "Approve";
+        flow.expect current absent;
+      };
+      flow.expect tr equals length.0;
+    };
+    flow.expect visible "u-11, u-13";

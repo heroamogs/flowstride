@@ -1,0 +1,13 @@
+Feature: Identify an invalid email
+Scenario: Show the row, column and observed email
+  Given "The fourth customer has an invalid email"
+    flow.open "/scoped-customers?case=bad-email";
+  When "I select the table body"
+    flow.find tbody inside table "#customers";
+  Then "Each of the four rows contains an email"
+    flow.within {
+      flow.expect tr equals length.4;
+      flow.each tr {
+        flow.expect text cell "Email" contains "@" "timeout: 500";
+      };
+    };

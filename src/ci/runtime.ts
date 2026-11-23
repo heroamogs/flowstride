@@ -46,6 +46,11 @@ export async function runNativeCI(worker: any, orchestrator: any, target: string
   const steps = new Map<string, any>(); const completed = new Set<string>(); const errors: string[] = [];
   const fixtureCleanups: FixtureCleanupResult[] = [];
   const dependencies: HandoffStatus[] = [];
+  const iteratedSteps = new Set<string>();
+  const isIteration = (file: string, id: string) => {
+    const base = id.replace(/(?:_row\d+)+$/, '');
+    return base !== id && iteratedSteps.has(file + ':' + base);
+  };
   const planned = new Map<string, any>(); let bailed = false;
   let hasRunnableScenario = false;
   let expected = 0; let files: string[] = []; let server: ChildProcess | undefined; let interrupted = false;
@@ -55,7 +60,13 @@ export async function runNativeCI(worker: any, orchestrator: any, target: string
     const p = data.payload;
     if (data.type === 'BROWSER_INFO') browsers.set(p.fileName, { ...p });
     if (data.type === 'BAIL') bailed = true;
-    if (data.type === 'SCENARIO_ATTEMPT') attemptSteps.set(p.fileName, []);
+    if (data.type === 'SCENARIO_ATTEMPT') {
+      attemptSteps.set(p.fileName, []);
+      if (p.attempt > 1) for (const [key, step] of steps) {
+        if (step.fileName === p.fileName && step.scenario === p.scenario &&
+            step.dataCase?.index === p.dataCase?.index && isIteration(p.fileName, step.id)) steps.delete(key);
+      }
+    }
     if (data.type === 'SCENARIO_RESULT') attempts.push({ ...p, steps: [...(attemptSteps.get(p.fileName) || [])] });
     if (data.type === 'FILE_COMPLETE' || data.type === 'FILE_FAILED') timings[p.fileName] = p.duration;
     if (data.type === 'STEP_UPDATE') attemptSteps.get(p.fileName)?.push({ ...p, screenshot: undefined });
@@ -104,6 +115,15 @@ export async function runNativeCI(worker: any, orchestrator: any, target: string
     const handoffFeatures = new Map(plan.handoffs?.map(job => [job.file, job.features]));
     for (const file of files) {
       const features = handoffFeatures.get(file) ?? prepareWorkflowFeatures(new Parser(new Lexer(fs.readFileSync(file, 'utf8')).tokenise()).parse(), config);
+      for (const feature of features) for (const scenario of feature.scenarios) {
+        const blocks: string[] = [];
+        for (const step of scenario.steps) {
+          if (blocks.includes('each')) iteratedSteps.add(flowIdentity(file, config.flowRoot) + ':' + step.id);
+          if (step.action !== 'scoped') continue;
+          if (step.payload.op === 'each' || step.payload.op === 'within') blocks.push(step.payload.op);
+          if (step.payload.op === 'end') blocks.pop();
+        }
+      }
       hasRunnableScenario ||= features.some(feature => feature.scenarios.some(scenario => !scenario.skipReason && scenario.steps.length));
       for (const feature of features) for (const scenario of feature.scenarios) for (const step of scenario.steps) {
         const fileName = flowIdentity(file, config.flowRoot);
@@ -163,6 +183,7 @@ export async function runNativeCI(worker: any, orchestrator: any, target: string
   if (bailed) for (const [key, step] of planned) if (!steps.has(key)) steps.set(key, step);
   const results = [...steps.values()];
   const terminal = results.filter(step => ['passed','failed','skipped','not_tested','blocked'].includes(step.status));
+  expected += results.filter(step => isIteration(step.fileName, step.id)).length;
   const incomplete = Math.max(0, expected - terminal.length);
   for (const file of files) if (!bailed && !completed.has(flowIdentity(file, config.flowRoot))) errors.push(`Incomplete file: ${flowIdentity(file, config.flowRoot)}`);
   if (results.some(step => !['passed','failed','skipped','not_tested','blocked'].includes(step.status))) errors.push('Unfinished test steps.');

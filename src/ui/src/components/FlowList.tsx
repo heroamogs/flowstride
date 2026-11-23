@@ -487,6 +487,7 @@ export const FlowList = () => {
                                       }}
                                     >
                                       {step.commandLabel || step.command}
+                                      {step.previousAttemptOnly && <small> · Attempt {step.attempt} only</small>}
                                       {step.userMessage !== undefined && <div data-user-message style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: '#c4b5fd', marginTop: '4px' }}>{step.userMessage}</div>}
                                       <AssertionDetails result={step.assertion} />
                                       {step.error && !step.assertion && <div style={{whiteSpace:'pre-wrap',color:'#f87171'}}>{step.error}</div>}
