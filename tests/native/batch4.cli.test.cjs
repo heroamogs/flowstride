@@ -5,7 +5,12 @@ const html=`<!doctype html><h1>Ready</h1><label>First name<input id="main" value
 async function fixture(browser='chromium'){
  const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'flowstride-batch4-cli-')));fs.mkdirSync(path.join(dir,'flows'));fs.mkdirSync(path.join(dir,'.flowstride'));fs.writeFileSync(path.join(dir,'.flowstride/credentials.json'),'{}');
  let retries=0;const server=http.createServer((req,res)=>{if(req.url==='/api/retry'){res.statusCode=++retries===1?503:200;res.end('{}');return;}if(req.url.startsWith('/api/')){res.setHeader('Content-Type','application/json');if(req.url==='/api/auth/verify-cli')res.end(JSON.stringify({tier:'business',workspaceName:'Batch4 fixture'}));else if(req.url==='/api/workspace/status')res.end(JSON.stringify({workspace:{_id:'fixture-batch4-workspace'},manifest:{maxWorkers:2,features:[]}}));else{req.resume();res.end(JSON.stringify({accepted:true}));}return;}res.setHeader('Content-Type','text/html');res.end(req.url==='/frame'?frame:req.url==='/receipt'?'<h1>Receipt page</h1>':html);});await new Promise(r=>server.listen(0,'127.0.0.1',r));const url='http://127.0.0.1:'+server.address().port;
- fs.writeFileSync(path.join(dir,'flowstride.config.json'),JSON.stringify({baseUrl:url,browser,timeout:650,recordVideo:false,domSnapshots:false,security:{evidence:{screenshots:false}}}));
+ // WebKit waits for stable frames before scrolling or typing. Allow for browser round trips on CI.
+ const config = {
+   baseUrl: url, browser, timeout: 5000, recordVideo: false, domSnapshots: false,
+   security: { evidence: { screenshots: false } },
+ };
+ fs.writeFileSync(path.join(dir, 'flowstride.config.json'), JSON.stringify(config));
  return {dir,url,write:s=>fs.writeFileSync(path.join(dir,'flows/browsing.flow'),s),summary:()=>JSON.parse(fs.readFileSync(path.join(dir,'flowstride-artifacts/summary.json'))),close:async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));fs.rmSync(dir,{recursive:true,force:true});}};
 }
 async function execute(f,args=[],extra={}){return new Promise((resolve,reject)=>{const child=spawn(process.execPath,[path.join(root,'dist/cli/index.js'),'run','flows','--ci',...args],{cwd:f.dir,env:{PATH:process.env.PATH,TMPDIR:os.tmpdir(),CI:'true',FLOWSTRIDE_TOKEN:'',FLOWSTRIDE_API_URL:f.url,...extra},stdio:['ignore','pipe','pipe']});let output='';child.stdout.on('data',d=>output+=d);child.stderr.on('data',d=>output+=d);const timer=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Batch4 CLI timed out: '+output));},60000);child.on('error',reject);child.once('exit',(code,signal)=>{clearTimeout(timer);resolve({code,signal,output});});});}
