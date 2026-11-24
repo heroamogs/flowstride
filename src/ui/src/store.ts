@@ -53,6 +53,8 @@ export interface TestStep {
   profile?: string;
   attempt?: number;
   domSnapshot?: string;
+  dataCaseIndex?: number;
+  previousAttemptOnly?: boolean;
   attemptHistory?: { attempt: number; status: string; screenshot?: string; domSnapshot?: string; profile?: string; error?: string | null; assertion?: AssertionResult | null }[];
 }
 
@@ -166,7 +168,15 @@ export const useFlowStore = create<AppState>((set) => ({
   isRunning: false,
   runStatus: "idle",
   failFile: (fileName, error) => set(state => ({activeTestFile:state.activeTestFile || fileName, runStatus:"failed", testScenarios:[...state.testScenarios.filter(s=>s.fileName!==fileName || s.name!=="File error"),{fileName,name:"File error",status:"failed",steps:[{id:"file-error",type:"ERROR",description:"File could not complete",command:"parse / execution",status:"failed",error}]}]})),
-  scenarioResult: payload => set(state => ({testScenarios:state.testScenarios.map(s=>s.fileName===payload.fileName && s.name===payload.scenario ? {...s,status:payload.status==='skipped'?'skipped':payload.status==='passed'?'pass':'failed'} : s)})),
+  scenarioResult: payload => set(state => ({
+    testScenarios: state.testScenarios.map(scenario => {
+      if (scenario.fileName !== payload.fileName || scenario.name !== payload.scenario) return scenario;
+      const steps = payload.attempt > 1 ? scenario.steps.map(step =>
+        /_row\d+$/.test(step.id) && step.dataCaseIndex === payload.dataCase?.index && (step.attempt || 1) < payload.attempt
+          ? {...step, previousAttemptOnly:true} : step) : scenario.steps;
+      return {...scenario, steps, status:payload.status === 'skipped' ? 'skipped' : payload.status === 'passed' ? 'pass' : 'failed'};
+    })
+  })),
   timer: 0,
   completedSteps: [],
   activeStepId: null,
@@ -366,7 +376,7 @@ export const useFlowStore = create<AppState>((set) => ({
         const previous = targetScenario.steps[existingStepIndex];
         if ((step.attempt || 1) <= (previous.attempt || 1)) return state;
         const steps = [...targetScenario.steps];
-        steps[existingStepIndex] = { ...previous, status:step.status || 'running', attempt:step.attempt,
+        steps[existingStepIndex] = { ...previous, previousAttemptOnly:false, status:step.status || 'running', attempt:step.attempt,
           profile:step.profile || previous.profile, userMessage:typeof step.userMessage === 'string' ? redactPayload(step.userMessage) : undefined, error:null, assertion:null, screenshot:undefined, domSnapshot:undefined };
         updatedScenarios[targetIndex] = {...targetScenario,status:'running',steps};
         return {testScenarios:updatedScenarios};
@@ -379,7 +389,7 @@ export const useFlowStore = create<AppState>((set) => ({
         command: step.command || "",
         status: step.status || "running",
         commandLabel:step.commandLabel, userMessage: typeof step.userMessage === 'string' ? redactPayload(step.userMessage) : undefined, sourceLine:step.sourceLine, error:step.error, assertion:step.assertion,
-        attempt:step.attempt, profile:step.profile,
+        attempt:step.attempt, dataCaseIndex:step.dataCase?.index, profile:step.profile,
       };
 
       updatedScenarios[targetIndex] = {

@@ -1,3 +1,5 @@
+import language from './language-manifest.json';
+
 export const expectationTypes = new Set([
   'status', 'responseTime', 'resBody', 'resHeader', 'cookie',
   'visible', 'text', 'value', 'attribute', 'transcript',
@@ -47,9 +49,10 @@ export function validateApiAssertions(assertions: unknown): asserts assertions i
 }
 
 /** And remains limited to assertions and existing custom assertion plugins. */
-export const nativeAssertionCommands = new Set(['assert.that','assert.value','dialog.expect','network.expect','download.expect','stub.expect','a11y.scan','a11y.match','api.expectSchema','console.expect','channel.expect','visual.match']);
+export const nativeAssertionCommands = new Set(language.assertions);
 export function isAssertionStep(action: string, payload: any): boolean {
-  return action === 'expect' || action === 'plugin' || action === 'native' && nativeAssertionCommands.has(payload?.pluginMethod);
+  return action === 'scoped' && ['expect','find','ascend','within','each','end'].includes(payload?.op) ||
+    action === 'expect' || action === 'plugin' || action === 'native' && nativeAssertionCommands.has(payload?.pluginMethod);
 }
 
 /** Soft mode is deliberately limited to built-in assertions; custom plugins retain their contract. */

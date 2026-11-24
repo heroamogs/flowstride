@@ -2,6 +2,7 @@ import { stepStatusPresentation } from "../../../reporting/step_status";
 
 interface StatusEntry {
   status?: unknown;
+  previousAttemptOnly?: boolean;
 }
 
 interface ScenarioEntry extends StatusEntry {
@@ -10,9 +11,9 @@ interface ScenarioEntry extends StatusEntry {
 
 /** Aggregate recorded outcomes for display; this never changes step execution. */
 export function aggregateStepStatus(steps: readonly StatusEntry[]): string {
-  if (steps.length === 0) return "pending";
-  const statuses = steps.map(step => stepStatusPresentation(step.status).status);
+  const statuses = steps.filter(step => !step.previousAttemptOnly).map(step => stepStatusPresentation(step.status).status);
 
+  if (statuses.length === 0) return "pending";
   if (statuses.some(status => status === "failed" || status === "error")) return "failed";
   for (const status of ["interrupted", "cancelled", "blocked", "running", "pending", "not_tested", "unknown"]) {
     if (statuses.includes(status)) return status;

@@ -116,3 +116,7 @@ export function needsNativeHandoffProtocol(target: string, config: FlowstrideCon
     new Lexer(fs.readFileSync(file, 'utf8')).tokenise().some(token =>
       token.type === TokenType.ALIAS_COMMAND && /^flow\.handoff\.(?:publish|receive)$/i.test(token.value)));
 }
+
+export function needsNativeScopedBrowserProtocol(target: string, config: FlowstrideConfig): boolean {
+  return usesNativeCommand(target, config, step => step.action === 'scoped');
+}

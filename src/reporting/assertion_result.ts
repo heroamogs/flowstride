@@ -71,6 +71,7 @@ export function failedAssertion(result: AssertionResult | undefined, reason: str
   return copy;
 }
 export function commandLabel(action: string, payload: any): string {
+  if (action === 'scoped') return payload.op === 'end' ? 'end scope' : 'flow.' + payload.op;
   if (action === 'helper') return 'flow.call';
   if (action === 'handoff') return payload?.kind === 'publish' ? 'flow.handoff.publish' : 'flow.handoff.receive';
   if (action === 'fixture') return payload?.scope === 'worker' ? 'flow.fixture.worker' : 'flow.fixture.use';
@@ -79,6 +80,9 @@ export function commandLabel(action: string, payload: any): string {
 }
 
 export function unexecutedAssertion(action: string, payload: any, reason = 'A previous required step failed.'): AssertionResult | undefined {
+  if (action === 'scoped' && payload?.op === 'expect') {
+    return {command:'flow.expect', target:payload.target?.tag || 'current', status:'not_evaluated', reason, checks:[]};
+  }
   if (action !== 'native' || !['assert.that','assert.value','dialog.expect','network.expect','download.expect','stub.expect','a11y.scan','a11y.match','a11y.snapshot','api.expectSchema','api.poll','console.expect','channel.expect','visual.match'].includes(payload?.pluginMethod)) return;
   const data = payload.data && typeof payload.data === 'object' ? payload.data : {};
   if (['console.expect','channel.expect','visual.match'].includes(payload.pluginMethod)) return { command:payload.pluginMethod, target:payload.pluginMethod, status:'not_evaluated', reason, checks:[] };

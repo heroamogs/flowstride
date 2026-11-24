@@ -1,6 +1,8 @@
 # Engine release checks
 
-Pushes and pull requests build the engine and Rust/WASM dashboard from locked dependencies. GitHub Actions covers Ubuntu and macOS with Node.js 22.12.0 and Node.js 24. Matching Chromium, Firefox and WebKit binaries are installed before unit tests, security regressions and the full native/dashboard regression suite.
+Pushes and pull requests build the engine and Rust/WASM dashboard from locked dependencies. GitHub Actions runs the engine checks on Ubuntu and macOS with Node.js 22.12.0 and Node.js 24. On Ubuntu, browser tests run in Microsoft's Ubuntu Playwright image with the selected Node version. When upgrading Playwright, update the image tag and digest in `.github/scripts/run-browser-check.sh` to match. The macOS jobs install Chromium, Firefox and WebKit on the runner.
+
+A separate check installs the Ubuntu Node.js 22.12.0 job's package archive in an empty project on a fresh Ubuntu runner. It runs `flowstride install --with-deps` with an empty browser cache, then runs the packaged example in Chromium and checks that all seven steps passed.
 
 High and critical findings in shipped engine/dashboard dependencies fail the checks. Full development audits are retained separately. Package inventory and clean archive execution checks verify the distributable. Each operating system and Node.js combination retains its archive and audit evidence.
 

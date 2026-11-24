@@ -1,0 +1,28 @@
+Feature: Read customer records by their contents and position
+
+Scenario: Check Jason Doe's record after finding his email
+  Given "The customer table is open"
+    flow.open "/scoped-customers";
+  When "I find the cell containing Jason's email"
+    flow.find td "jdoe@hotmail.com" inside table[0];
+    flow.ascend tr;
+  Then "The name and balance belong to Jason"
+    flow.within {
+      flow.expect text td[0] equals "Doe";
+      flow.expect text td[1] equals "Jason";
+      flow.expect text td[3] equals "$100.00";
+    };
+
+Scenario: Check the structure of all four customer records
+  Given "The table is open"
+    flow.open "/scoped-customers";
+  When "I select the first table body"
+    flow.find tbody inside table[0];
+  Then "Every data row has six cells and an email in the third cell"
+    flow.within {
+      flow.expect tr equals length.4;
+      flow.each tr {
+        flow.expect td equals length.6;
+        flow.expect text td[2] contains "@";
+      };
+    };

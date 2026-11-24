@@ -1,5 +1,5 @@
 import { runtimeFailure } from '../../reporting/runtime_failure';
-import { needsNativePasswordToggleProtocol, needsNativeHandoffProtocol, needsNativeFixtureProtocol, needsNativeHelperProtocol, needsNativeBrowserProtocol, needsNativeValueProtocol, needsNativeControlProtocol, needsNativeInteractionProtocol, needsNativeBrowsingProtocol, needsNativeDataProtocol, needsNativeWorkflowProtocol, needsNativeApiProtocol, needsNativeApplicationEvidenceProtocol } from '../../native/compatibility';
+import { needsNativeScopedBrowserProtocol, needsNativePasswordToggleProtocol, needsNativeHandoffProtocol, needsNativeFixtureProtocol, needsNativeHelperProtocol, needsNativeBrowserProtocol, needsNativeValueProtocol, needsNativeControlProtocol, needsNativeInteractionProtocol, needsNativeBrowsingProtocol, needsNativeDataProtocol, needsNativeWorkflowProtocol, needsNativeApiProtocol, needsNativeApplicationEvidenceProtocol } from '../../native/compatibility';
 import { projectPath } from '../../utils/projectPaths';
 import { loadNativeConfig } from '../../ci/config';
 import { runNativeCI } from '../../ci/runtime';
@@ -176,6 +176,10 @@ export async function runAction(
       if ((proWorkerModule.FlowWorker.nativeFixtureProtocol !== 1 || proOrchModule.FlowOrchestrator.nativeFixtureProtocol !== 1) &&
           needsNativeFixtureProtocol(resolvedPath, config)) {
         throw new Error('Installed Pro engine does not support runner-managed fixtures. This run will use the open-source engine.');
+      }
+      if ((proWorkerModule.FlowWorker.nativeScopedBrowserProtocol !== 1 || proOrchModule.FlowOrchestrator.nativeScopedBrowserProtocol !== 1) &&
+          needsNativeScopedBrowserProtocol(resolvedPath, config)) {
+        throw new Error('Installed Pro engine does not support scoped browser commands. This run will use the open-source engine.');
       }
       if ((proWorkerModule.FlowWorker.nativePasswordToggleProtocol !== 1 || proOrchModule.FlowOrchestrator.nativePasswordToggleProtocol !== 1) &&
           needsNativePasswordToggleProtocol(resolvedPath, config)) {

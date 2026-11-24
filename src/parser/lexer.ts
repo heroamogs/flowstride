@@ -1,3 +1,9 @@
+import { readScopedCommand, type ScopeCommand } from './scoped';
+import language from './language-manifest.json';
+
+const structuredCommands = new Set(Object.keys(language.commands).map(name => 'flow.' + name));
+const softAssertions = new Map(language.assertions.map(name => [name.toLowerCase(), name]));
+
 export enum TokenType {
   FEATURE = "FEATURE",
   SCENARIO = "SCENARIO",
@@ -21,6 +27,7 @@ export enum TokenType {
 }
 
 export interface Token {
+  scoped?: ScopeCommand;
   type: TokenType;
   value: string;
   line: number;
@@ -61,6 +68,7 @@ export class Lexer {
 
   public tokenise(): Token[] {
     const tokens: Token[] = [];
+    const scopeLines: number[] = [];
     let expectingNakedCommand = false;
     let expectingSoftAssertion = false;
 
@@ -90,6 +98,12 @@ export class Lexer {
         continue;
       }
 
+      if (char === '}') {
+        if (!scopeLines.pop()) throw new Error('Line ' + this.line + ': Unexpected closing scope brace.');
+        tokens.push({type:TokenType.COMMAND,value:'scope.end',line:this.line,scoped:{op:'end'}});
+        this.position++;
+        continue;
+      }
       if (char === "{") {
         let jsonStr = "";
         let depth = 0;
@@ -202,6 +216,19 @@ export class Lexer {
         }
 
         const lowerIdent = ident.toLowerCase();
+        if (lowerIdent.startsWith('flow.') && !expectingNakedCommand && !expectingSoftAssertion) {
+          const scoped = readScopedCommand(this.input, this.position, lowerIdent.slice(5), scopeLines.length > 0, this.line);
+          if (scoped) {
+            const line = this.line;
+            this.line += (this.input.slice(this.position, scoped.end).match(/\n/g) || []).length;
+            this.position = scoped.end;
+            if (scoped.command.op === 'within' || scoped.command.op === 'each') scopeLines.push(line);
+            tokens.push({type:TokenType.COMMAND,value:ident,line,scoped:scoped.command});
+            continue;
+          }
+        }
+        if (scopeLines.length) throw new Error('Line ' + this.line + ': Unexpected ' + ident +
+          ' in browser scope opened on line ' + scopeLines.at(-1) + '. Close the block or use a scoped command.');
         if (lowerIdent === 'passtoggle' && /^(?:flow\.)?click$/i.test(tokens.at(-1)?.value ?? '') && this.input[this.position] === '[') {
           const suffix = /^\[(\d+)\]/.exec(this.input.slice(this.position));
           if (!suffix || !Number.isSafeInteger(Number(suffix[1]))) throw new SyntaxError(`Line ${this.line}: passToggle index must be a nonnegative safe integer.`);
@@ -295,11 +322,11 @@ export class Lexer {
 
         if (expectingSoftAssertion) {
           expectingSoftAssertion = false;
-          const nativeAssertions = ['assert.that','assert.value','dialog.expect','network.expect','download.expect','stub.expect','a11y.scan','a11y.match','console.expect','channel.expect','visual.match'];
+          const assertion = softAssertions.get(lowerIdent);
           if (lowerIdent === 'expect') {
             tokens.push({ type:TokenType.COMMAND, value:ident, line:this.line });
-          } else if (nativeAssertions.includes(lowerIdent) || lowerIdent === 'api.expectschema') {
-            tokens.push({ type:TokenType.ALIAS_COMMAND, value:'flow.' + (lowerIdent === 'api.expectschema' ? 'api.expectSchema' : lowerIdent), line:this.line });
+          } else if (assertion !== undefined) {
+            tokens.push({ type:TokenType.ALIAS_COMMAND, value:'flow.' + assertion, line:this.line });
           } else {
             throw new SyntaxError(`Syntax Error on line ${this.line}: flow.soft requires a supported built-in assertion, without repeating 'flow.'. Actions, plugins and flow.try cannot be soft.`);
           }
@@ -577,7 +604,7 @@ export class Lexer {
             value: ident,
             line: this.line,
           });
-        } else if (/^flow\.(browser|assert|network|download|clock|stub|trace|har|a11y|component|input|tab|frame|dialog|files|data|file|api|console|channel|visual|handoff)\.[a-z]+$/i.test(ident) || /^flow\.(call|skipIf|cleanup\.register)$/i.test(ident) || (ident.includes(".") && !lowerIdent.startsWith("flow."))) {
+        } else if (structuredCommands.has(ident) || /^flow\.(browser|assert|network|download|clock|stub|trace|har|a11y|component|input|tab|frame|dialog|files|data|file|api|console|channel|visual|handoff)\.[a-z]+$/i.test(ident) || /^flow\.(call|skipIf|cleanup\.register)$/i.test(ident) || (ident.includes(".") && !lowerIdent.startsWith("flow."))) {
           tokens.push({
             type: TokenType.ALIAS_COMMAND,
             value: ident,
@@ -635,6 +662,7 @@ export class Lexer {
     }
 
     tokens.push({ type: TokenType.EOF, value: "", line: this.line });
+    if (scopeLines.length) throw new Error('Line ' + scopeLines.at(-1) + ': Missing closing brace for browser scope.');
     return tokens;
   }
 }

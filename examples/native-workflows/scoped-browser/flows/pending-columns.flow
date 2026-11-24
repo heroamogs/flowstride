@@ -1,0 +1,16 @@
+Feature: Address cells by column heading
+Scenario: Check Jason's balance and every pending customer's approval
+  Given "Customer records are open"
+    flow.open "/scoped-customers";
+  When "I select the customer table"
+    flow.find table "#customers";
+  Then "Jason owes $100.00 and each pending customer can be approved"
+    flow.within {
+      flow.find tr where cell "Email" equals "jdoe@hotmail.com";
+      flow.within {
+        flow.expect text cell "Due" equals "$100.00";
+      };
+      flow.each tr where cell "Status" equals "Pending" {
+        flow.expect enabled button "Approve";
+      };
+    };

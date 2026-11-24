@@ -138,3 +138,9 @@ Once you submit a PR, a core maintainer will review your code.
 - Once approved, a maintainer will merge your code into the main branch.
 
 Thank you for contributing to Flowstride!
+
+## Describe language additions for editors
+
+When adding a structured command, include its name and a representative argument in `src/parser/language-manifest.json`. Use a JSON object for commands taking an object or a string for commands taking a quoted argument. Implement the command in the runner and add a regression for its actual behavior. List it in `assertions` if the command supports assertion blocks and soft mode. The `conditions` list supplies the accepted browser assertion names for `flow.assert.that`.
+
+The build ships this data as `dist/parser/language-manifest.json`. Editors supporting schema version 1 can use new entries in the existing command grammar. Coordinate a parser and editor change for a new grammar production. Run `npm run build` and `node --test tests/native/editor-language.test.cjs` to check the packaged parser against the examples.
