@@ -59,7 +59,7 @@ test('built dashboard switches each real flow screen/history, isolates logs, and
   // Return to Live stays local to A; B's selected snapshot remains intact.
   await page.getByRole('button',{name:'Return to Live',exact:true}).click();assert.equal(await page.getByText('Viewing Historical State',{exact:true}).count(),0);
   await page.getByRole('tab',{name:B,exact:true}).click();await expectSource(b[1].screenshot);await page.getByRole('tab',{name:A,exact:true}).click();assert.equal(await page.getByText('Viewing Historical State',{exact:true}).count(),0);
-  await page.getByRole('button',{name:'Rerun',exact:true}).click();await page.getByText('Awaiting execution...',{exact:true}).waitFor();assert.equal(await image.count(),0);assert.equal(await page.getByRole('tab').count(),0);assert.equal(requests.at(-1).type,'RERUN_REQ');assert.equal(requests.at(-1).payload.filePath,A);
+  await page.getByRole('button',{name:'Rerun',exact:true}).click();send({type:'SUITE_START',payload:{}});await page.getByText('Awaiting execution...',{exact:true}).waitFor();assert.equal(await image.count(),0);assert.equal(await page.getByRole('tab').count(),0);assert.equal(requests.at(-1).type,'RERUN_REQ');assert.deepEqual(requests.at(-1).payload,{});
   send({type:'SUITE_START',payload:{}});for(const event of events.filter(event=>event.payload?.fileName===A))send(event);send({type:'RUN_COMPLETE',payload:{status:'success'}});await expectSource(a.at(-1).screenshot);assert.equal(await page.getByRole('tab').count(),1);
   send({type:'STEP_UPDATE',payload:{...a[0],status:'failed',attempt:1,profile:'customer',domSnapshot:'first.dom.html'}});
   send({type:'STEP_UPDATE',payload:{...a[0],screenshot:b[0].screenshot,status:'passed',attempt:2,profile:'admin',domSnapshot:'second.dom.html'}});

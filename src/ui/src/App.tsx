@@ -1,3 +1,4 @@
+import { useFlowStore } from './store';
 import { RunHistoryView } from './views/RunHistoryView';
 import { useEffect, useState } from "react";
 import Home from "./Home";
@@ -9,6 +10,7 @@ export default function App() {
 }
 
 function RunnerApp() {
+  const stopped = useFlowStore(state => state.dashboardStopped);
   const [engineStatus, setEngineStatus] = useState<string>(
     "Initialising Native Engine...",
   );
@@ -41,6 +43,7 @@ function RunnerApp() {
     };
   }, []);
 
+  if (stopped) return <main role="status" style={{ padding: '2rem' }}>Flowstride has stopped. You can close this tab.</main>;
   return (
     <>
       <div

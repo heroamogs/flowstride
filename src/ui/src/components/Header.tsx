@@ -13,9 +13,9 @@ import { sendToRunner } from "../socket";
 export const Header = ({ isRightPanelOpen, onToggleRightPanel }: any) => {
   const {
     isRunning,
+    activeFiles, pendingPauses, queuedPauses,
     runStatus,
     timer,
-    startExecution,
     stopExecution,
     incrementTimer,
     activeTestFile,
@@ -34,10 +34,11 @@ export const Header = ({ isRightPanelOpen, onToggleRightPanel }: any) => {
     return () => clearInterval(interval);
   }, [isRunning, incrementTimer]);
 
-  const handleRerun = () => {
+  const paused = Object.values(pendingPauses).some(pause => pause.fileName === activeTestFile);
+  const queued = queuedPauses.includes(activeTestFile);
+  const handleRun = (selected: boolean) => {
     if (isRunning) return;
-    startExecution();
-    sendToRunner("RERUN_REQ", { filePath: activeTestFile });
+    sendToRunner('RERUN_REQ', selected ? { filePath: activeTestFile } : {});
   };
 
   const handleStop = () => {
@@ -127,7 +128,7 @@ export const Header = ({ isRightPanelOpen, onToggleRightPanel }: any) => {
                 fontWeight: "600",
               }}
             >
-              {isRunning ? "Running" : runStatus === "failed" ? "Failed" : runStatus === "interrupted" ? "Interrupted" : runStatus === "incomplete" ? "Incomplete" : runStatus === "skipped" ? "Skipped" : "Complete"}
+              {isRunning ? (paused ? 'Paused' : 'Running') : runStatus === "failed" ? "Failed" : runStatus === "interrupted" ? "Interrupted" : runStatus === "incomplete" ? "Incomplete" : runStatus === "skipped" ? "Skipped" : "Complete"}
             </span>
             <span
               style={{
@@ -171,10 +172,16 @@ export const Header = ({ isRightPanelOpen, onToggleRightPanel }: any) => {
           }}
         />
 
+        {isRunning && activeFiles.includes(activeTestFile) && !paused && (
+          <button type="button" disabled={queued} onClick={() => sendToRunner('PAUSE_FILE', { fileName: activeTestFile })}>
+            {queued ? 'Pausing…' : 'Pause and inspect'}
+          </button>
+        )}
         {!isRunning ? (
           <button
-            onClick={handleRerun}
-            disabled={isRunning}
+            title="Run the selected flow"
+            onClick={() => handleRun(true)}
+            disabled={isRunning || !activeTestFile}
             style={{
               background: "none",
               border: "1px solid #30363d",
@@ -208,7 +215,8 @@ export const Header = ({ isRightPanelOpen, onToggleRightPanel }: any) => {
           </button>
         )}
         <button
-          onClick={handleRerun}
+          title="Rerun the original group of flows"
+          onClick={() => handleRun(false)}
             disabled={isRunning}
           style={{
             background: "none",

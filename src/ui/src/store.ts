@@ -75,6 +75,10 @@ interface AppState {
   setDependencyState: (payload: unknown) => void;
   browserInfo: Record<string, { engine: string; version: string; headless: boolean }>;
   setBrowserInfo: (fileName: string, info: { engine: string; version: string; headless: boolean }) => void;
+  dashboardStopped: boolean;
+  activeFiles: string[];
+  queuedPauses: string[];
+  inspectionResult: { id: string; description: string } | null;
   pendingPauses: Record<string, ExecutionPause>;
   pauseExecution: (payload: unknown) => void;
   resumeExecution: (id: string) => void;
@@ -151,6 +155,10 @@ export const useFlowStore = create<AppState>((set) => ({
     if ((status !== 'waiting' && status !== 'blocked') || typeof reason !== 'string') return state;
     return { dependencyStates: { ...state.dependencyStates, [fileName]: { status, reason: reason.slice(0, 4096) } } };
   }),
+  dashboardStopped: false,
+  activeFiles: [],
+  queuedPauses: [],
+  inspectionResult: null,
   pendingPauses: {},
   pauseExecution: payload => set(state => {
     const pause = executionPause(redactWorkerPayload('EXECUTION_PAUSED', payload, []));

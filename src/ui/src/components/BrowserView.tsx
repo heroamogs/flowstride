@@ -1,3 +1,4 @@
+import { PausedBrowser } from './PausedBrowser';
 import { AssertionDetails } from "./AssertionDetails";
 import { useEffect, useState } from 'react';
 import { flowStep, lastCapturedStep } from '../utils/flowHistory';
@@ -29,6 +30,9 @@ export const BrowserView = () => {
     setActiveTestFile,
   } = useFlowStore();
 
+  const pendingPauses = useFlowStore(state => state.pendingPauses);
+  const historicalRun = useFlowStore(state => state.activeHistoricalRunId);
+  const pause = !historicalRun && Object.values(pendingPauses).find(item => item.inspectable && item.fileName === activeTestFile);
   const selectedStep = flowStep(testScenarios, activeTestFile, activeStepId);
   const [historyAttempt, setHistoryAttempt] = useState<number | null>(null);
   useEffect(() => { setHistoryAttempt(null); }, [activeTestFile, activeStepId, isRunning]);
@@ -305,7 +309,9 @@ export const BrowserView = () => {
           </div>
         )}
 
-        {visualSource ? (
+        {isRunning && pause && activeFrame ? (
+          <PausedBrowser key={pause.id} id={pause.id} frame={activeFrame} />
+        ) : visualSource ? (
           <img
             src={`data:image/png;base64,${visualSource}`}
             style={{

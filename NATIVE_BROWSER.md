@@ -6,6 +6,13 @@ The open-source and Cloud engines support these commands directly in `.flow` fil
 
 Keep both engine installations current when using these features. If an installed Cloud engine lacks the required capability protocol, the public runner warns and uses the open-source engine for the run. Existing commands can still use an older compatible Cloud engine; Cloud-only services require a compatible Cloud installation.
 
+## Local dashboard controls
+
+- **Pause and inspect** lets the current step finish and pauses the selected flow. The terminal shows **Paused**. On the live page, click or type to interact, or use **Inspect element** to see an element's tag and attributes. Manual actions can change what the next test step sees. **Resume** continues the same flow.
+- Independent Pro workers can continue while a flow is paused. A dependent flow waits for its handoff. Protected handoffs and runs with screenshots disabled support pausing with the live inspector unavailable.
+- After saving a `.flow` file, click **Run** on its tab to execute the saved file and any required handoff dependencies. **Rerun** repeats the group originally launched in this dashboard session.
+- Click a completed step to see its captured screen. **Return to Live** shows the latest screen. Press **Ctrl+C** in the terminal to end the session. FS asks the dashboard tab it opened to close and displays a stopped message if the browser keeps it open.
+
 ## Separate users in one test
 
 A **profile** is an independent browser context: its cookies, local storage, session storage, pages and permissions are separate. The original profile is named `default`. Creating a profile selects it; switching profiles returns to the page that user was using.
