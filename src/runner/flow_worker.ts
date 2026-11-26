@@ -1,3 +1,4 @@
+import { interactWithPausedPage } from './paused_page';
 import { ScopedBrowser } from '../native/scoped_browser';
 import { createHash } from 'node:crypto';
 import { handoffSecrets, snapshotHandoff, type HandoffCommand, type HandoffValue } from '../native/handoff';
@@ -287,7 +288,7 @@ export class FlowWorker extends EventEmitter {
     }
     if (["STEP_ADD","STEP_UPDATE","LOG_EVENT"].includes(type)) payload = { ...payload, ...(this.currentScenarioName ? {scenario:this.currentScenarioName} : {}), ...(this.currentDataCase ? {dataCase:{index:this.currentDataCase.index+1,total:this.currentDataCase.total,file:this.currentDataCase.file}} : {}), attempt: this.attempt, profile: this.web.activeProfile || "default" };
     const safe = redactWorkerPayload(type, payload, this.secretValues(), this.config.ci === false && !this.config.protectedHandoff);
-    if (['EXECUTION_PAUSED','EXECUTION_RESUMED'].includes(type) && isPauseId(payload?.id)) {
+    if (['EXECUTION_PAUSED','EXECUTION_RESUMED','INSPECT_RESULT'].includes(type) && isPauseId(payload?.id)) {
       // A generated routing identifier is opaque, not application data or a credential.
       safe.id = payload.id;
       // Redaction can expand strings, so bound presentation fields after sanitization.
@@ -678,7 +679,63 @@ export class FlowWorker extends EventEmitter {
     }
   }
 
-  public resumePause(id: string): boolean { return this.control.resume(id); }
+  public dashboardHandlesInterrupt = false;
+  private requestedPause?: string;
+  private inspection?: Promise<void>;
+  private pendingGestures = 0;
+  private resumeAfterInspection?: string;
+
+  public requestDashboardPause(fileName: string) {
+    if (this.isAborted || this.config.ci || isCIEnvironment() || fileName !== this.currentFileName || this.control.pendingPause) return;
+    this.requestedPause = fileName;
+  }
+
+  private async dashboardCheckpoint() {
+    if (this.isAborted || this.requestedPause !== this.currentFileName) return;
+    await this.pauseForReview();
+  }
+
+  private async pauseForReview(message?: string) {
+    this.requestedPause = undefined;
+    let inspectable = false;
+    if (!this.config.protectedHandoff && screenshotEvidence(this.config)) {
+      try { inspectable = !this.web.getPage().isClosed(); } catch { /* A flow may have no open page. */ }
+    }
+    const prompt = message ?? (inspectable ? 'Paused from the dashboard' : 'Paused. Live inspection is unavailable for this flow.');
+    await this.control.pause(prompt, {
+      fileName: this.currentFileName.slice(0, 4096), scenario: this.currentScenarioName.slice(0, 4096),
+      sourceLine: this.currentStepLine, stepId: this.currentStepId.slice(0, 4096), attempt: this.attempt,
+      profile: (this.web.activeProfile || 'default').slice(0, 4096), inspectable
+    });
+  }
+
+  public inspectPausedPage(payload: any) {
+    const pause = this.control.pendingPause;
+    if (!pause?.inspectable || pause.id !== payload?.pauseId || this.isAborted || this.resumeAfterInspection || this.pendingGestures >= 64) return;
+    this.pendingGestures++;
+    const action = (this.inspection || Promise.resolve()).then(async () => {
+      if (this.isAborted || this.control.pendingPause?.id !== pause.id) return;
+      const description = await interactWithPausedPage(this.web.getPage(), payload);
+      if (description && this.control.pendingPause?.id === pause.id) this.broadcast('INSPECT_RESULT', { id: pause.id, description });
+    }).catch(() => {
+      if (this.control.pendingPause?.id === pause.id) this.broadcast('INSPECT_RESULT', { id: pause.id, description: 'This page is no longer available.' });
+    }).finally(() => {
+      this.pendingGestures--;
+      if (this.inspection !== action) return;
+      this.inspection = undefined;
+      if (this.resumeAfterInspection === pause.id) this.control.resume(pause.id);
+      this.resumeAfterInspection = undefined;
+    });
+    this.inspection = action;
+  }
+
+  public resumePause(id: string): boolean {
+    if (this.inspection && this.control.pendingPause?.id === id) {
+      this.resumeAfterInspection = id;
+      return true;
+    }
+    return this.control.resume(id);
+  }
 
   public abort(): void {
     this.isAborted = true;
@@ -726,7 +783,7 @@ export class FlowWorker extends EventEmitter {
     this.isDebugHalted = false;
 
     const sigintHandler = async () => {
-      if (this.config.ci || handoffSource) { this.abort(); return; }
+      if (this.config.ci || handoffSource || this.isSilent) { this.abort(); return; }
       if (!this.isSilent) {
         console.log(
           chalk.yellow(
@@ -745,7 +802,7 @@ export class FlowWorker extends EventEmitter {
       if (!this.config.ci) process.exit(this.isAborted ? 130 : process.exitCode || 0);
     };
 
-    process.once("SIGINT", sigintHandler);
+    if (!this.dashboardHandlesInterrupt) process.once("SIGINT", sigintHandler);
 
     try {
       for (const filePath of handoffSource ? [] : filesToProcess) {
@@ -792,6 +849,7 @@ export class FlowWorker extends EventEmitter {
         try {
           const fileName = flowIdentity(filePath, this.config.flowRoot);
           this.currentFileName = fileName;
+          this.requestedPause = undefined;
           this.currentFlowPath = filePath;
           this.practiceFrames = undefined;
           this.config.testFile = fileName;
@@ -937,6 +995,7 @@ export class FlowWorker extends EventEmitter {
             );
           if (!this.config.ci) await new Promise((resolve) => setTimeout(resolve, 2000));
 
+          await this.dashboardCheckpoint();
           await this.finishFileBrowser();
 
           this.broadcast("FILE_COMPLETE", {
@@ -1140,6 +1199,8 @@ export class FlowWorker extends EventEmitter {
         continue;
       }
 
+      await this.dashboardCheckpoint();
+      if (this.isAborted) break;
       let resolutionError: unknown;
       try {
       blockDesc = this.resolveTemplateData(blockDesc);
@@ -1279,6 +1340,7 @@ export class FlowWorker extends EventEmitter {
           fileName: this.currentFileName,
         });
 
+        await this.dashboardCheckpoint();
         if (step.isStop) {
           if (!this.isSilent) {
             console.log(
@@ -1672,7 +1734,7 @@ export class FlowWorker extends EventEmitter {
       case 'pause': {
         if (this.config.ci || isCIEnvironment()) throw new Error('flow.pause requires the interactive Flowstride dashboard and cannot run in CI. Remove the pause before running unattended tests.');
         validateControlMessage(payload?.message, 'pause');
-        await this.control.pause(payload.message, { fileName: this.currentFileName.slice(0,4096), scenario: this.currentScenarioName.slice(0,4096), stepId: this.currentStepId.slice(0,4096), sourceLine: this.currentStepLine, attempt: this.attempt, profile: (this.web.activeProfile || 'default').slice(0,4096) });
+        await this.pauseForReview(payload.message);
         break;
       }
       case 'native': {

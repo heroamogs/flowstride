@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 export interface PauseContext {
+  inspectable?: boolean;
   fileName?: string;
   scenario?: string;
   stepId?: string;

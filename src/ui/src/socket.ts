@@ -1,8 +1,10 @@
 import { useFlowStore } from "./store";
 
 let socket: WebSocket | null = null;
+let stopped = false;
 
 export const connectToRunner = () => {
+  if (stopped) return;
   if (
     socket &&
     (socket.readyState === WebSocket.OPEN ||
@@ -15,8 +17,10 @@ export const connectToRunner = () => {
 
   socket = new WebSocket(`${protocol}//${host}`);
 
-  socket.onopen = () =>
-    console.log("[Flowstride] Connected to Execution Engine");
+  socket.onopen = () => {
+    const id = new URLSearchParams(window.location.hash.slice(1)).get('fs-launch');
+    if (id) sendToRunner('DASHBOARD_LAUNCHED', { id });
+  };
 
   socket.onmessage = (event) => {
     try {
@@ -24,6 +28,23 @@ export const connectToRunner = () => {
       const store = useFlowStore.getState();
 
       switch (data.type) {
+        case 'SERVER_SHUTDOWN':
+          stopped = true;
+          useFlowStore.setState({ dashboardStopped: true });
+          if (data.payload?.closeTab === true) window.close();
+          return;
+        case 'DASHBOARD_FILES':
+          useFlowStore.setState({ activeFiles: data.payload.active, queuedPauses: data.payload.queued });
+          break;
+        case 'PAUSE_REQUESTED':
+          useFlowStore.setState({ queuedPauses: [...new Set([...store.queuedPauses, data.payload.fileName as string])] });
+          break;
+        case 'FILE_COMPLETE':
+          useFlowStore.setState({ activeFiles: store.activeFiles.filter(name => name !== data.payload.fileName) });
+          break;
+        case 'INSPECT_RESULT':
+          if (store.pendingPauses[data.payload?.id]) useFlowStore.setState({ inspectionResult: data.payload });
+          break;
         // STRICT MICRO STEP: The Command Handshake Interceptor
         case "CLI_CONTEXT":
           if (data.payload?.command === "run") {
@@ -34,10 +55,12 @@ export const connectToRunner = () => {
           break;
 
         case "SUITE_START":
+          useFlowStore.setState({ activeFiles: [], queuedPauses: [], inspectionResult: null });
           store.startExecution();
           break;
 
         case "RUN_START": {
+          useFlowStore.setState({ activeFiles: [...new Set([...store.activeFiles, data.payload.fileName as string])] });
           const currentState = useFlowStore.getState();
           if (!currentState.isRunning) {
             useFlowStore.setState({ isRunning: true });
@@ -55,7 +78,9 @@ export const connectToRunner = () => {
           break;
 
         case 'EXECUTION_PAUSED':
+          useFlowStore.setState({ queuedPauses: store.queuedPauses.filter(name => name !== data.payload.fileName) });
           store.pauseExecution(data.payload);
+          if (!useFlowStore.getState().activeTestFile && data.payload.fileName) store.setActiveTestFile(data.payload.fileName);
           break;
 
         case 'EXECUTION_RESUMED':
@@ -63,10 +88,12 @@ export const connectToRunner = () => {
           break;
 
         case "RUN_COMPLETE":
+          useFlowStore.setState({ activeFiles: [], queuedPauses: [], inspectionResult: null });
           store.stopExecution(data.payload?.status);
           break;
 
         case "FILE_FAILED":
+          useFlowStore.setState({ activeFiles: store.activeFiles.filter(name => name !== data.payload.fileName) });
           store.failFile(data.payload.fileName, data.payload.error || "File failed before completion.");
           break;
 
@@ -153,7 +180,7 @@ export const connectToRunner = () => {
     }
   };
 
-  socket.onclose = () => setTimeout(connectToRunner, 3000);
+  socket.onclose = () => { if (!stopped) setTimeout(connectToRunner, 3000); };
 };
 
 export const disconnectRunner = () => {

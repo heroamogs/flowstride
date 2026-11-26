@@ -17,9 +17,9 @@ export function parseShard(value?: string) {
   if (!Number.isSafeInteger(index) || !Number.isSafeInteger(total) || index < 1 || index > total || total > 256) throw new Error('Shard index must be between 1 and total (maximum 256).');
   return { index, total };
 }
-export function executionPlan(target: string, config?: FlowstrideConfig) {
+export function executionPlan(target: string, config?: FlowstrideConfig, originalFiles?: readonly string[]) {
   const root = config?.projectRoot || process.cwd();
-  const available = discoverFlows(target, root);
+  const available = originalFiles ? originalFiles.map(file => projectPath(root, file)) : discoverFlows(target, root);
   const planConfig: FlowstrideConfig = config || { projectRoot: root, headless: true, timeout: 30000 };
   const files: string[] = [];
   const flowHashes: string[][] = [];

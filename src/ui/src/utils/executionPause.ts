@@ -1,4 +1,5 @@
 export interface ExecutionPause {
+  inspectable?: boolean;
   id: string;
   message: string;
   fileName?: string;
@@ -15,6 +16,7 @@ export function executionPause(payload: unknown): ExecutionPause | null {
   if (typeof value.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id)) return null;
   if (typeof value.message !== 'string' || value.message.length > 32768) return null;
   const result: ExecutionPause = { id: value.id, message: value.message };
+  if (value.inspectable === true) result.inspectable = true;
   for (const key of ['fileName', 'scenario', 'stepId', 'profile'] as const) {
     if (value[key] !== undefined) {
       if (typeof value[key] !== 'string' || value[key].length > 4096) return null;

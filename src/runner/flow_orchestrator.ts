@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import type { WebSocket } from 'ws';
 import { serveRunHistory } from '../reporting/run_history_server';
 import { protectHandoffEvidence } from '../native/handoff';
 import { isBundledPracticeHandoff } from '../practice/project';
@@ -51,6 +53,31 @@ export class FlowOrchestrator {
   private disconnectTimer: NodeJS.Timeout | null = null;
   private dashboardBrowser = new DashboardBrowser();
   private closing = false;
+  private launchId = randomUUID();
+  private launchedTab?: WebSocket;
+  private originalTarget?: string;
+  private originalFiles?: string[];
+  private selectedFiles = new Map<string, string>();
+  private activeFiles = new Set<string>();
+  private queuedPauses = new Set<string>();
+  private lastFrames = new Map<string, { fileName: string; base64: string }>();
+
+  private readonly interruptDashboard = async () => {
+    if (this.closing) return;
+    this.closing = true;
+    const exitCode = this.isExecuting ? 130 : process.exitCode ?? 0;
+    try {
+      const notices = [...(this.wss?.clients || [])].map(client => new Promise<void>(resolve => {
+        if (client.readyState !== 1) return resolve();
+        client.send(JSON.stringify({ type: 'SERVER_SHUTDOWN', payload: { closeTab: client === this.launchedTab } }), () => resolve());
+      }));
+      await Promise.race([Promise.all(notices), new Promise(resolve => setTimeout(resolve, 500).unref())]);
+      await this.stopDashboardRun();
+    } finally {
+      await this.close();
+      process.exit(exitCode);
+    }
+  };
   private browserInfoByFile = new Map<string, any>();
   private localVideos = new Set<string>();
   private isExecuting = false;
@@ -75,7 +102,28 @@ export class FlowOrchestrator {
   }
 
   private forwardToDashboard(type: string, payload: any) {
+    if (type === 'BROWSER_FRAME' && this.wss && typeof payload.base64 === 'string') this.lastFrames.set(payload.fileName, payload);
+    if (type === 'RUN_START') this.activeFiles.add(payload.fileName);
+    if (type === 'FILE_COMPLETE' || type === 'FILE_FAILED') {
+      this.lastFrames.delete(payload.fileName);
+      this.activeFiles.delete(payload.fileName);
+      this.queuedPauses.delete(payload.fileName);
+    }
+    if (type === 'SUITE_START' || type === 'RUN_COMPLETE') {
+      this.lastFrames.clear();
+      this.activeFiles.clear();
+      this.queuedPauses.clear();
+    }
+    if (type === 'INSPECT_RESULT') {
+      const paused = this.pendingPauses.get(payload.id);
+      if (paused) {
+        for (const client of this.wss?.clients || []) if (client.readyState === 1) client.send(JSON.stringify({ type, payload }));
+      }
+      return;
+    }
     if (type === 'EXECUTION_PAUSED') {
+      this.queuedPauses.delete(payload.fileName);
+      console.log('[Flowstride] Paused · ' + String(payload.fileName).replace(/[\x00-\x1f\x7f]/g, '') + ' · Resume in the dashboard.');
       if (!isPauseId(payload?.id) || this.pendingPauses.has(payload.id)) return;
       this.pendingPauses.set(payload.id, { payload: { ...payload } });
     }
@@ -83,6 +131,7 @@ export class FlowOrchestrator {
       const pause = this.pendingPauses.get(payload?.id);
       if (!pause) return;
       this.pendingPauses.delete(payload.id);
+      if (!payload.cancelled) console.log('[Flowstride] Resumed · ' + String(pause.payload.fileName).replace(/[\x00-\x1f\x7f]/g, ''));
     }
     if (type === 'SUITE_START' || type === 'RUN_COMPLETE') this.pendingPauses.clear();
     if (type === 'BROWSER_INFO') this.browserInfoByFile.set(payload.fileName, payload);
@@ -139,7 +188,8 @@ export class FlowOrchestrator {
     this.forwardToDashboard("SUITE_START", {});
 
     if(this.config && !this.config.ci) delete this.config.nativeDataManifest;
-    const plan = executionPlan(targetPath, this.config);
+    const plan = executionPlan(targetPath, this.config, targetPath === this.originalTarget ? this.originalFiles : undefined);
+    this.selectedFiles = new Map(plan.files.map(file => [flowIdentity(file, plan.flowRoot), file]));
     const filesToProcess = plan.files;
     if (this.config) this.config.flowRoot = plan.flowRoot;
 
@@ -194,6 +244,10 @@ export class FlowOrchestrator {
   public async start(targetPath: string): Promise<boolean> {
     try {
       if (this.config?.ci) return await this.executeTestRun(targetPath);
+      this.originalTarget = targetPath;
+      this.originalFiles = discoverFlows(targetPath, this.config?.projectRoot || process.cwd());
+      this.worker.dashboardHandlesInterrupt = true;
+      process.on('SIGINT', this.interruptDashboard);
       this.httpServer = http.createServer((req, res) => {
         if (!isLocalDashboardRequest(req.headers.host, req.headers.origin)) { res.writeHead(403); res.end('Forbidden'); return; }
           res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
@@ -270,7 +324,12 @@ export class FlowOrchestrator {
       this.wss.on("connection", (ws) => {
         for (const payload of this.browserInfoByFile.values()) ws.send(JSON.stringify({ type: 'BROWSER_INFO', payload }));
         for (const fileName of this.localVideos) ws.send(JSON.stringify({ type: 'LOCAL_VIDEO_READY', payload: { fileName } }));
-        for (const { payload } of this.pendingPauses.values()) ws.send(JSON.stringify({ type: 'EXECUTION_PAUSED', payload }));
+        ws.send(JSON.stringify({ type: 'DASHBOARD_FILES', payload: { active: [...this.activeFiles.keys()], queued: [...this.queuedPauses] } }));
+        for (const { payload } of this.pendingPauses.values()) {
+          ws.send(JSON.stringify({ type: 'EXECUTION_PAUSED', payload }));
+          const frame = payload.fileName && this.lastFrames.get(payload.fileName);
+          if (payload.inspectable && frame) ws.send(JSON.stringify({ type: 'BROWSER_FRAME', payload: frame }));
+        }
         for (const payload of this.dependencyStates.values()) ws.send(JSON.stringify({ type: 'FLOW_DEPENDENCY', payload }));
         if (this.disconnectTimer) {
           clearTimeout(this.disconnectTimer);
@@ -281,6 +340,26 @@ export class FlowOrchestrator {
           let data: any;
           try { data = JSON.parse(message.toString()); } catch { return; }
           if (!data || typeof data.type !== 'string') return;
+          if (this.closing) return;
+          if (data.type === 'DASHBOARD_LAUNCHED' && data.payload?.id === this.launchId) {
+            if (!this.launchedTab || this.launchedTab.readyState !== 1) this.launchedTab = ws;
+            return;
+          }
+          if (data.type === 'PAUSE_FILE') {
+            const name = data.payload?.fileName;
+            if (!this.isExecuting || !this.activeFiles.has(name) || this.queuedPauses.has(name) ||
+                [...this.pendingPauses.values()].some(pause => pause.payload.fileName === name)) return;
+            this.queuedPauses.add(name);
+            this.worker.requestDashboardPause(name);
+            for (const client of this.wss?.clients || []) if (client.readyState === 1) client.send(JSON.stringify({ type: 'PAUSE_REQUESTED', payload: { fileName: name } }));
+            return;
+          }
+          if (data.type === 'INSPECT_PAUSED') {
+            const pause = this.pendingPauses.get(data.payload?.pauseId);
+            if (!pause?.payload.inspectable || !this.isExecuting) return;
+            this.worker.inspectPausedPage(data.payload);
+            return;
+          }
           if (data.type === 'RESUME_EXECUTION') { this.resumeExecution(data.payload?.pauseId); return; }
 
           if (data.type === "EXPORT_PDF_REQ") {
@@ -294,20 +373,14 @@ export class FlowOrchestrator {
           } else if (data.type === "RERUN_REQ") {
             if (this.isExecuting) return;
             const requestedFile = data.payload?.filePath;
-            let specificTarget = targetPath;
-
-            if (requestedFile) {
-              const targetStat = fs.statSync(targetPath);
-              if (targetStat.isDirectory()) {
-                specificTarget = path.join(targetPath, requestedFile);
-              } else {
-                specificTarget = path.join(
-                  path.dirname(targetPath),
-                  requestedFile,
-                );
-              }
+            const nextTarget = requestedFile === undefined ? targetPath : this.selectedFiles.get(requestedFile);
+            if (!nextTarget) return;
+            try {
+              await this.executeTestRun(nextTarget);
+            } catch (error) {
+              console.error('[Flowstride] Could not start dashboard run:', error instanceof Error ? error.message : 'Run setup failed');
+              this.forwardToDashboard('RUN_COMPLETE', { status: 'failed' });
             }
-            await this.executeTestRun(specificTarget);
           } else if (data.type === "STOP_REQ") {
             console.log(
               chalk.yellow(
@@ -368,7 +441,7 @@ export class FlowOrchestrator {
               !!process.env.FLOWSTRIDE_API_KEY;
 
             if (!isStrictHeadless) {
-              await this.dashboardBrowser.open(localUrl, this.config?.browser);
+              await this.dashboardBrowser.open(localUrl + '#fs-launch=' + this.launchId, this.config?.browser);
               console.log(`[Dashboard]: ${this.config?.browser === 'firefox' || this.config?.browser === 'webkit' ? this.config.browser : 'system default'} dashboard window; test browser reported after launch${this.config?.headless ? ' (headless tests)' : ''}.`);
 
               console.log(
@@ -408,6 +481,8 @@ export class FlowOrchestrator {
   }
 
   public async close() {
+    process.removeListener('SIGINT', this.interruptDashboard);
+    this.worker.dashboardHandlesInterrupt = false;
     this.closing = true;
     this.abort();
     await this.dashboardBrowser.close();

@@ -13,6 +13,8 @@ let activeWorker: FlowWorker | null = null;
 process.on("message", async (message: any) => {
   if (!message || typeof message.type !== 'string') return;
   if (message.type === 'STOP_RUN') { activeWorker?.abort(); return; }
+  if (message.type === 'PAUSE_FILE') { activeWorker?.requestDashboardPause(message.payload?.fileName); return; }
+  if (message.type === 'INSPECT_PAUSED') { activeWorker?.inspectPausedPage(message.payload); return; }
   if (message.type === 'RESUME_EXECUTION') { if (isPauseId(message.payload?.pauseId)) activeWorker?.resumePause(message.payload.pauseId); return; }
   if (message.type === "START_RUN") {
     if (activeWorker) return;
